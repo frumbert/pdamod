@@ -8,8 +8,8 @@ Author URI: https://www.frumbert.org/
 */
 
 // routines for debugging
-add_filter('https_ssl_verify', '__return_false'); // NOT FOR PRODUCTION
-function pdadump($value) {
+// add_filter('https_ssl_verify', '__return_false'); // NOT FOR PRODUCTION
+function pdadump(...$value) {
 	echo "<pre>", print_r($value, true), "</pre>";
 }
 
@@ -30,70 +30,66 @@ function pda_register_settings() {
 }
 
 /* manage plugin add/deactivate/removal */
-register_activation_hook(__FILE__, 'pdamod_activate');
-function pdamod_activate() {
+register_activation_hook(__FILE__, 'pda_activate');
+function pda_activate() {
 	add_option('pda_moodle', 'https://set.path.to/moodle');
 	add_option('pda_token', 'not-set');
 }
-register_deactivation_hook(__FILE__, 'pdamod_deactivate');
-function pdamod_deactivate() {
+register_deactivation_hook(__FILE__, 'pda_deactivate');
+function pda_deactivate() {
 	delete_option('pda_moodle');
 	delete_option('pda_token');
 }
-register_uninstall_hook(__FILE__, 'pdamod_uninstall');
-function pdamod_uninstall() {
-	pdamod_deactivate();
+register_uninstall_hook(__FILE__, 'pda_uninstall');
+function pda_uninstall() {
+	pda_deactivate();
+	delete_option('pda_moodle');
+	delete_option('pda_token');
+	// todo: delete user meta moodle_accesstoken
 }
 
 /* BEFORE the my_courses list begins, see if we need to modify the data based on external enrolments */
 add_action( 'eb_before_my_courses_wrapper', 'pda_before_my_courses_wrapper' );
 function pda_before_my_courses_wrapper() {
+	global $wpdb;
 	$userid = get_current_user_id();
 	$moodleid = get_user_meta($userid, 'moodle_user_id', true);
 
-	$moodle_url = get_option('pdamod_moodle', '');
-	$moodle_token = get_option('pdamod_token', '');
+	// if the web service token was set
+	if (!empty(get_option('pda_token')) && $moodleid > 0) {
 
-	if (!empty($moodle_url) && !empty($moodle_token)) {
+		// get the Moodle courses that I'm enrolled in
+		$result = pda_webservice_call("core_enrol_get_users_courses", [
+			"userid" => $moodleid
+		]);
 
-		$usertoken = get_user_meta($userid, 'moodle_usertoken', true);
-		if (empty($usertoken)) {
-			// connect to the moodle service to generate a token for this user
-			// $usertoken = 'webservice-return-value';
-			// add_user_meta($userid, 'moodle_usertoken', $usertoken);
+		// if courses were returned, result will be set
+		if (!empty($result)) {
+
+			// get the Edwiser courses that I'm enrolled in
+			$eb_courses = \app\wisdmlabs\edwiserBridge\eb_get_user_enrolled_courses( $userid );
+			// $all_courses = \app\wisdmlabs\edwiserBridge\wdm_eb_get_all_eb_sourses();
+			foreach ($result as $course) {
+
+				// find out the edwiser course id based on the moodle course id
+				$eb_courseid = \app\wisdmlabs\edwiserBridge\wdm_eb_get_wp_course_id_from_moodle_course_id($course->id);
+
+				// tell Edwiser about any missing Moodle courses
+				if ($eb_courseid && !in_array($eb_courseid, $eb_courses)) {
+					$wpdb->insert( $wpdb->prefix . 'moodle_enrollment', [
+						"user_id" => $userid,
+						"course_id" => $eb_courseid,
+						"role_id" => 5,
+						"time" => current_time( 'mysql' ),
+						"act_cnt" => 1,
+						"suspended" => 0,
+						"membership_id" => null,
+					] );
+				}
+			}
 		}
 
-		pdadump([$userid,$moodleid, $usertoken]);
-	
-		// look up the moodle web service for enrolled courses for this user
-
-		// match the moodle course ids back to post ids - check for duplicate course ids!
-		// [prefix_woo_moodle_course]
-		// meta_id
-		// product_id
-		// moodle_post_id - it says moodle but it's really a wordpress post record of type 'eb_course' - an "EDWISER COURSE"
-		// moodle_course_id - the course record from moodle
-
-
-		// write these courses into the table will look up the courses to draw
-		// [prefix_moodle_enrollment]
-		// id
-		// user_id
-		// course_id (this is a POST of type 'eb_course' and status of 'publish')
-		// role_id = 5 (configured somewhere)
-		// time = a date
-		// expire_time = zeroed date
-		// act_cnt = the number of times the user has accessed the course (default: 1)
-		// suspended = 0
-		// membership_id = NULL - no idea
-
-
-		// TODO: determine what happens if we leave these records in the table
-		// does it muck up other systems?
-		// there is no eb_after_my_courses_wrapper where we could otherwise clean up
-
 	}
-
 }
 
 /* register a shortcode [pdaverify] */
@@ -102,13 +98,7 @@ function pda_register_shortcode() {
 	add_shortcode('pdaverify', 'pda_handler');
 }
 
-/* consume the [pdaverify] shortcode and produce a form for verifying the token
-
-	[pdaverify feedbackObj=".some-class" placeholder="Jeff Bezos" label="Who owns Amazon?" size="5"]Do It![/pdaverify]
-
-	[pdaverify]Apply[/pdaverify]
-
-*/
+/* consume the [pdaverify] shortcode and produce a form for verifying the token */
 function pda_handler( $atts, $content = null ) {
 	if (!is_user_logged_in()) return $content;
 
@@ -153,9 +143,17 @@ function pda_verifytokenjs() {
 		exit("No soup for you!");
 	}
 	if(!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
-		$result = pda_webservice_call("st_apply_token", [
-			"token" => $_REQUEST["token"]
+		$userid = get_current_user_id();
+		$moodleid = get_user_meta($userid, 'moodle_user_id', true);
+		$result = pda_webservice_call("st_validate_token", [
+			"token" => $_REQUEST["token"],
 		]);
+		if ($result->valid) {
+			$result = pda_webservice_call("st_apply_token", [
+				"token" => $_REQUEST["token"],
+				"userid" => $moodleid
+			]);
+		}
 		$result = json_encode($result);
 		echo $result;
 	} else {
@@ -166,8 +164,8 @@ function pda_verifytokenjs() {
 
 /* perform a webservice call to moodle using the function-name and data */
 function pda_webservice_call($function_name, $data) {
-	$moodle_url = get_option('pdamod_moodle', '');
-	$moodle_token = get_option('pdamod_token', '');
+	$moodle_url = get_option('pda_moodle', '');
+	$moodle_token = get_option('pda_token', '');
 	$return = false;
 	$params = http_build_query([
 		"wstoken" => $moodle_token,
@@ -180,7 +178,8 @@ function pda_webservice_call($function_name, $data) {
 				'Accept' => 'application/json'
 			],
 			'blocking' => true,
-			'body' => $data
+			'body' => $data,
+			// 'timeout' => 300 // to allow for debugging
 		]);
 		if ( ( !is_wp_error($response)) && (200 === wp_remote_retrieve_response_code( $response ) ) ) {
 			$responseBody = json_decode($response['body']);
@@ -189,7 +188,7 @@ function pda_webservice_call($function_name, $data) {
 			}
 		}
 	} catch (Exception $ex) {
-		// TODO
+		throw new Exception(print_r($ex, true));
 	}
 	return $return;
 }
