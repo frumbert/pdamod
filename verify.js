@@ -12,14 +12,23 @@ jQuery(document).ready( function() {
                 type: 'post',
                 dataType: "json",
                 url: pdaAjax.ajaxurl,
-                data: jQuery(el).serialize(),
-                success: function(response) {
-                    outputField.textContent = response.output;
-                    if (response.error > 0) {
-                        alert('Sorry, an error occurred.');
-                        console.error(response);
-                    }
+                data: jQuery(el).serialize()
+            }).done(function(response) {
+                if (response.hasOwnProperty('message') && response.message) {
+                    outputField.textContent = response.message;
+                } else {
+                    outputField.innerHTML = "Applied token! Reloading in <span>5</span> seconds";
+                    let i = 5;
+                    let si = setInterval(function() {
+                        outputField.querySelector('span').textContent = --i;
+                        if (i < 1) {
+                            clearTimeout(si);
+                            location.reload();
+                        }
+                    },1000);
                 }
+            }).fail(function (xhr,status,err) {
+                console.log(xhr,status,err);
             });
         });
     });
