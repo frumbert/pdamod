@@ -14,11 +14,13 @@ jQuery(document).ready( function() {
                 url: pdaAjax.ajaxurl,
                 data: jQuery(el).serialize()
             }).done(function(response) {
+            console.dir(response);
                 if (response.hasOwnProperty('message') && response.message) {
                     outputField.textContent = response.message;
                 } else {
-                    outputField.innerHTML = "Applied token! Reloading in <span>5</span> seconds";
-                    let i = 5;
+                    el.querySelector('input[name="token"]').value = '';
+                    outputField.innerHTML = "Applied token. It might take a minute before the courses appear. Reloading in <span>10</span> seconds";
+                    let i = 10;
                     let si = setInterval(function() {
                         outputField.querySelector('span').textContent = --i;
                         if (i < 1) {

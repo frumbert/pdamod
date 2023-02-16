@@ -8,7 +8,11 @@ Author URI: https://www.frumbert.org/
 */
 
 // routines for debugging
-// add_filter('https_ssl_verify', '__return_false'); // NOT FOR PRODUCTION
+
+$pdadebug = (strpos(home_url( $wp->request ), ".test") !== false);
+// if ($pdadebug) {
+// 	add_filter('https_ssl_verify', '__return_false');
+// }
 function pdadump(...$value) {
 	echo "<pre>", print_r($value, true), "</pre>";
 }
@@ -154,6 +158,11 @@ function pda_verifytokenjs() {
 				"userid" => $moodleid
 			]);
 		}
+		if ($result == false) {
+			$result = [
+				"message" => "Sorry an error occurred."
+			];
+		}
 		$result = json_encode($result);
 		echo $result;
 	} else {
@@ -164,6 +173,7 @@ function pda_verifytokenjs() {
 
 /* perform a webservice call to moodle using the function-name and data */
 function pda_webservice_call($function_name, $data) {
+global $pdadebug;
 	$moodle_url = get_option('pda_moodle', '');
 	$moodle_token = get_option('pda_token', '');
 	$return = false;
@@ -179,7 +189,8 @@ function pda_webservice_call($function_name, $data) {
 			],
 			'blocking' => true,
 			'body' => $data,
-			// 'timeout' => 300 // to allow for debugging
+			'timeout' => ($pdadebug) ? 300 : 15,
+			'sslverify' => ($pdadebug) ? false : true,
 		]);
 		if ( ( !is_wp_error($response)) && (200 === wp_remote_retrieve_response_code( $response ) ) ) {
 			$responseBody = json_decode($response['body']);
