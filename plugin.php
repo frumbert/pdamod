@@ -1,20 +1,23 @@
 <?php
 
 /*
-Plugin Name: PDAcademy Hooks
+Plugin Name: PDAcademy Edwiser Brige Extension
 Description: Hooks into Edwiser to adjust my_course listing page and provides shortcodes for Token access
 Author: tim st.clair <tim.stclair@gmail.com>
 Author URI: https://www.frumbert.org/
+Plugin URI: https://github.com/frumbert/pdamod
+Version: 1.0.0
 */
 
-// routines for debugging
-
 $pdadebug = (strpos(home_url( $wp->request ), ".test") !== false);
-// if ($pdadebug) {
-// 	add_filter('https_ssl_verify', '__return_false');
-// }
+
+if ($pdadebug) {
+	add_filter( 'https_ssl_verify', '__return_false' );
+}
+
 function pdadump(...$value) {
-	echo "<pre>", print_r($value, true), "</pre>";
+global $pdadebug;
+	if ($pdadebug) echo "<pre>", print_r($value, true), "</pre>";
 }
 
 /* register and add a settings page */
@@ -49,7 +52,6 @@ function pda_uninstall() {
 	pda_deactivate();
 	delete_option('pda_moodle');
 	delete_option('pda_token');
-	// todo: delete user meta moodle_accesstoken
 }
 
 /* BEFORE the my_courses list begins, see if we need to modify the data based on external enrolments */
@@ -72,6 +74,7 @@ function pda_before_my_courses_wrapper() {
 
 			// get the Edwiser courses that I'm enrolled in
 			$eb_courses = \app\wisdmlabs\edwiserBridge\eb_get_user_enrolled_courses( $userid );
+
 			// $all_courses = \app\wisdmlabs\edwiserBridge\wdm_eb_get_all_eb_sourses();
 			foreach ($result as $course) {
 
