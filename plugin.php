@@ -206,3 +206,10 @@ global $pdadebug;
 	}
 	return $return;
 }
+
+/* tell the outgoing moodle authentication link about the page that launched it */
+add_filter('eb_sso_login_url', 'pda_inject_home_url');
+function pda_inject_home_url($url) {
+	$url .= '&redirectto=' . urlencode(wp_get_referer());
+	return $url;
+}
